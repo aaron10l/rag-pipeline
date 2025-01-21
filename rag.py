@@ -11,7 +11,6 @@ def initialize_chromadb(collection_name: str) -> chromadb.Collection:
     client = chromadb.PersistentClient("./chromadb_store")  # PersistentClient for local DB
     return client.get_or_create_collection(name=collection_name)
 
-
 # updated chunking to use sliding window with overlap(stride)
 def load_and_chunk_text(file_path: str, chunk_size: int = 512, stride: int = 256) -> List[str]:
     with open(file_path, 'r') as file:
