@@ -1,138 +1,166 @@
 import streamlit as st
 from sentence_transformers import SentenceTransformer
+import time
 import chromadb
 from chromadb.config import Settings
-from typing import List, Dict
-import glob
+from xml.etree import ElementTree
 import requests
+import json
 
+import utils
 
 def initialize_chromadb(collection_name: str) -> chromadb.Collection:
     client = chromadb.PersistentClient("./chromadb_store")  # PersistentClient for local DB
     return client.get_or_create_collection(name=collection_name)
 
-# updated chunking to use sliding window with overlap(stride)
-def load_and_chunk_text(file_path: str, chunk_size: int = 512, stride: int = 256) -> List[str]:
-    with open(file_path, 'r') as file:
-        text = file.read()
-    return [text[i:i + chunk_size] for i in range(0, len(text) - chunk_size + 1, stride)]
+def fetch_pmc_full_text(query: str, papers_metadata, max_results: int = 5) -> None:
+    """
+    Query PubMed Central and fetch the full text body of the top results. Saves the full-text body of articles as .txt files.
+    """
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
+    # Use esearch to get article IDs
+    search_url = f"{base_url}/esearch.fcgi"
+    search_params = {
+        "db": "pmc",
+        "term": query,
+        "retmax": max_results,
+        "retmode": "xml"
+    }
+    search_response = requests.get(search_url, params=search_params)
+    search_response.raise_for_status()
 
-def process_text_files(folder_path: str, chunk_size: int = 512) -> Dict[str, List[str]]:
-    file_paths = glob.glob(f"{folder_path}/*.txt")
-    file_chunks = {}
-    for file_path in file_paths:
-        file_chunks[file_path] = load_and_chunk_text(file_path, chunk_size)
-    return file_chunks
+    # Parse the response to extract IDs
+    search_tree = ElementTree.fromstring(search_response.content)
+    pmc_ids = [id_elem.text for id_elem in search_tree.findall(".//Id")]
+    print(f"PMC IDs: {pmc_ids}")
 
+    if not pmc_ids:
+        print("No results found.")
+        return
 
-def generate_embeddings(chunks: List[str], model) -> List[List[float]]:
-    return model.encode(chunks)
+    # Fetch the text body of each individual paper
+    fetch_url = f"{base_url}/efetch.fcgi"
 
+    for pmc_id in pmc_ids:
+        if pmc_id not in papers_metadata:
+            fetch_params = {
+                "db": "pmc",
+                "id": pmc_id,
+                "rettype": "full",
+                "retmode": "xml"
+            }
+            fetch_response = requests.get(fetch_url, params=fetch_params)
+            fetch_response.raise_for_status()
+            time.sleep(1)
 
-def store_embeddings_in_chromadb(
-    collection: chromadb.Collection,
-    file_chunks: Dict[str, List[str]],
-    model
-):
-    for file_path, chunks in file_chunks.items():
-        embeddings = generate_embeddings(chunks, model)
-        for idx, embedding in enumerate(embeddings):
-            collection.add(
-                documents=[chunks[idx]],
-                metadatas=[{"file": file_path, "chunk": idx}],
-                ids=[f"{file_path}-{idx}"]
+            # Parse the XML to extract the full text body
+            article_tree = ElementTree.fromstring(fetch_response.content)
+            body_elements = article_tree.findall(".//body")
+
+            if not body_elements:
+                print(f"No full text body found for article {pmc_id}.")
+                continue
+
+            full_text = "\n".join(ElementTree.tostring(body, encoding="unicode", method="text") for body in body_elements)
+
+            # save the full text body to a file
+            file_name = f"corpus/PMC_{pmc_id}.txt"
+            with open(file_name, "w", encoding="utf-8") as file:
+                file.write(full_text)
+            
+            # Extract metadata fields
+            title_elements = article_tree.findall(".//article-title")
+            title = title_elements[0].text if title_elements else "Unknown Title"
+
+            journal_elements = article_tree.findall(".//journal-title")
+            journal = journal_elements[0].text if journal_elements else "Unknown Journal"
+
+            publication_date_elements = article_tree.findall(".//pub-date")
+            publication_date = (
+                publication_date_elements[0].text if publication_date_elements else "Unknown Date"
             )
 
+            papers_metadata[pmc_id] = {
+                "title": title,
+                "file_name": file_name,
+                "journal": journal,
+                "publication_date": publication_date,
+                "file_name": file_name
+            }
+            print(f"Saved full text body of article {pmc_id} as {file_name}")
+        else:
+            print(f"skipping article {pmc_id}, already been saved")
 
-def query_chromadb(
-    collection: chromadb.Collection,
-    query: str,
-    model,
-    n_results: int = 5
-) -> Dict:
-    query_embedding = model.encode([query])
-    results = collection.query(query_embeddings=query_embedding, n_results=n_results)
-    return results
+    return papers_metadata
 
+def main():
+    st.title("RAG Pipeline with Ollama")
 
-def format_context(results: Dict) -> str:
-    context = "".join(results["documents"][0])
-    return context
+    # sidebar for initialization
+    with st.sidebar:
+        st.header("Pipeline Initialization")
+        gene_symbol = st.text_input("Gene Symbol", "TP53")
+        folder_path = st.text_input("Folder Path", "./corpus/")
+        initialize_button = st.button("Initialize Pipeline")
 
+    # Initialize components
+    if "collection" not in st.session_state:
+        st.session_state.collection = None
 
-def format_prompt(query, context):
-    formatted = f"Here is some context you may or may not choose to use: \n {context}.\n Here is the original query: \n {query}"
-    return formatted
+    if initialize_button:
+        st.write("Initializing pipeline...")
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        collection = initialize_chromadb("gene_data")
 
+        queries = [
+            f"interaction partners of {gene_symbol}",
+            f"protein interaction regions of {gene_symbol}",
+            f"functional sites of {gene_symbol}"
+        ]
 
-def query_ollama(prompt: str, host: str = "http://localhost", port: int = 11434) -> str:
-    url = f"{host}:{port}/api/generate"
-    payload = {"prompt": prompt,
-               "model": "llama3.2",
-               "stream": False
-               }
-    headers = {"Content-Type": "application/json"}
-    
-    response = requests.post(url, json=payload, headers=headers)
-    
-    if response.status_code == 200:
-        return response.json().get("response", "No response from Ollama.")
-    else:
-        return f"Error: {response.status_code}, {response.text}"
+        papers_metadata = {}
 
+        # Fetch and process papers using fetch_pmc_full_text
+        for query in queries:
+            print(f"processing query {query}...")
+            papers_metadata = fetch_pmc_full_text(query, papers_metadata)
+            print(f"there are {len(papers_metadata)} papers downloaded.")
+        #TODO: complete the process papers and store function
 
-# Streamlit App
-st.title("RAG Pipeline with Ollama")
-
-# Sidebar for initialization
-with st.sidebar:
-    st.header("Pipeline Initialization")
-    folder_path = st.text_input("Path to Text Files", "./text-data/text/")
-    initialize_button = st.button("Initialize Pipeline")
-
-# Initialize components
-if "collection" not in st.session_state:
-    st.session_state.collection = None
-
-if initialize_button:
-    # initializing the vector db for the first time
-    st.write("Initializing pipeline...")
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-    collection = initialize_chromadb("pdf_texts")
-
-    if not collection.count() > 0:
-        st.write("Indexing text data...")
-        file_chunks = process_text_files(folder_path)
-        store_embeddings_in_chromadb(collection, file_chunks, embedding_model)
-        st.success("Pipeline initialized and embeddings stored!")
-    else:
-        st.success("Pipeline already initialized!")
-    
-    # Save to session state
-    st.session_state.collection = collection
-else:
-    collection = st.session_state.collection
+        # CHUNKING, VECTORIZING, AND STORING PAPERS IN CHROMADB
+        if not collection.count() > 0:
+            st.write("storing data in chromadb")
+            file_chunks = utils.process_text_files(folder_path)
+            utils.store_embeddings_in_chromadb(collection, file_chunks, embedding_model)
+            st.success("Pipeline initialized and relevant data retrieved!")
+        else:
+            st.write("there is already vectorized data in the chromadb.")
+        st.session_state.collection = collection
 
 # Main Query Area
-st.header("Query the RAG Pipeline")
+    st.header("Query the RAG Pipeline")
 
-if collection is None:
-    st.warning("initialize the pipeline first!")
-else:
-    query = st.text_area("Enter your query:")
-    submit_query = st.button("Submit Query")
+    if st.session_state.collection is None:
+        st.warning("Initialize the pipeline first!")
+    else:
+        query = st.text_area("Enter your query:")
+        submit_query = st.button("Submit Query")
 
-    if submit_query and query:
-        st.write("Retrieving context...")
-        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Reinitialize if needed
-        results = query_chromadb(collection, query, embedding_model)
-        context = format_context(results)
-        st.write(f"**Retrieved Context:**\n{context}")
-        prompt = format_prompt(query, context)
+        if submit_query and query:
+            st.write("Retrieving context...")
+            embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Reinitialize if needed
+            results = {}  # Placeholder for query results from ChromaDB
 
-        # Send to Ollama
-        st.write("Querying Ollama...")
-        response = query_ollama(prompt)
-        st.write(f"**Ollama Response:**\n{response}")
+            # Retrieve and format context
+            context = "\n".join(results.get("documents", ["No results found."]))
+            st.write(f"**Retrieved Context:**\n{context}")
 
+            # Format and send prompt to Ollama
+            prompt = f"Here is some context: \n{context}.\nOriginal query: \n{query}"
+            st.write("Querying Ollama...")
+            response = "Ollama response placeholder."  # Placeholder for Ollama query
+            st.write(f"**Ollama Response:**\n{response}")
+
+if __name__ == "__main__":
+    main()
