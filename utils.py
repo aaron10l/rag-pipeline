@@ -8,13 +8,12 @@ def initialize_chromadb(collection_name: str) -> chromadb.Collection:
     client = chromadb.PersistentClient("./chromadb_store")  # PersistentClient for local DB
     return client.get_or_create_collection(name=collection_name)
 
-# updated chunking to use sliding window with overlap(stride)
 def load_and_chunk_text(file_path: str, chunk_size: int = 512, stride: int = 256) -> List[str]:
+    # updated chunking to use sliding window with overlap(stride)
     print(f"chunking file: {file_path}")
     with open(file_path, 'r') as file:
         text = file.read()
     return [text[i:i + chunk_size] for i in range(0, len(text) - chunk_size + 1, stride)]
-
 
 def process_text_files(folder_path: str, chunk_size: int = 512) -> Dict[str, List[str]]:
     file_paths = glob.glob(f"{folder_path}/*.txt")
@@ -23,10 +22,8 @@ def process_text_files(folder_path: str, chunk_size: int = 512) -> Dict[str, Lis
         file_chunks[file_path] = load_and_chunk_text(file_path, chunk_size)
     return file_chunks
 
-
 def generate_embeddings(chunks: List[str], model) -> List[List[float]]:
     return model.encode(chunks)
-
 
 def store_embeddings_in_chromadb(
     collection: chromadb.Collection,
@@ -43,7 +40,6 @@ def store_embeddings_in_chromadb(
                 ids=[f"{file_path}-{idx}"]
             )
 
-
 def query_chromadb(
     collection: chromadb.Collection,
     query: str,
@@ -54,11 +50,9 @@ def query_chromadb(
     results = collection.query(query_embeddings=query_embedding, n_results=n_results)
     return results
 
-
 def format_context(results: Dict) -> str:
     context = "".join(results["documents"][0])
     return context
-
 
 def format_prompt(query, context):
     formatted = f"""
@@ -67,7 +61,6 @@ def format_prompt(query, context):
         CONTEXT: {context}\n
     """
     return formatted
-
 
 def query_ollama(prompt: str, host: str = "http://localhost", port: int = 11434) -> str:
     url = f"{host}:{port}/api/generate"
