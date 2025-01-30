@@ -1,5 +1,6 @@
 import chromadb
 import glob
+import requests
 from chromadb.config import Settings
 from typing import List, Dict
 
@@ -60,7 +61,11 @@ def format_context(results: Dict) -> str:
 
 
 def format_prompt(query, context):
-    formatted = f"Here is some context you may or may not choose to use: \n {context}.\n Here is the original query: \n {query}"
+    formatted = f"""
+        Answer the QUERY below using the CONTEXT below. Use the CONTEXT below only if it is relevant to the QUERY, otherwise use general knowledge.\n
+        QUERY: {query} \n
+        CONTEXT: {context}\n
+    """
     return formatted
 
 

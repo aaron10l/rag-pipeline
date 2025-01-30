@@ -126,7 +126,6 @@ def main():
             print(f"processing query {query}...")
             papers_metadata = fetch_pmc_full_text(query, papers_metadata)
             print(f"there are {len(papers_metadata)} papers downloaded.")
-        #TODO: complete the process papers and store function
 
         # CHUNKING, VECTORIZING, AND STORING PAPERS IN CHROMADB
         if not collection.count() > 0:
@@ -150,17 +149,20 @@ def main():
         if submit_query and query:
             st.write("Retrieving context...")
             embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Reinitialize if needed
-            results = {}  # Placeholder for query results from ChromaDB
+            results = utils.query_chromadb(st.session_state.collection, query, embedding_model)
 
             # Retrieve and format context
-            context = "\n".join(results.get("documents", ["No results found."]))
+            context = utils.format_context(results)
             st.write(f"**Retrieved Context:**\n{context}")
+            print(f"retrieved context:\n{context}")
 
+            #TODO: QUERY OLLAMA with prompt
             # Format and send prompt to Ollama
-            prompt = f"Here is some context: \n{context}.\nOriginal query: \n{query}"
+            prompt = utils.format_prompt(query, context)
             st.write("Querying Ollama...")
-            response = "Ollama response placeholder."  # Placeholder for Ollama query
+            response = utils.query_ollama(prompt)
             st.write(f"**Ollama Response:**\n{response}")
 
 if __name__ == "__main__":
     main()
+
