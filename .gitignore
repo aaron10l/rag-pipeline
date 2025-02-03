@@ -2,3 +2,4 @@ chromadb_store/
 corpus/
 __pycache__/
 *.pyc
+.DS_Store
