@@ -1,3 +1,4 @@
 chromadb_store/
 corpus/
-__pycache__/*
+__pycache__/
+*.pyc
