@@ -1,5 +1,6 @@
 import glob
 import os
+import re
 from grobid_client.grobid_client import GrobidClient
 import xml.etree.ElementTree as ET
 
@@ -14,6 +15,7 @@ def load_and_chunk_text(file_path: str, chunk_size: int = 512, stride: int = 256
 
 def convert_pdf_to_xml(folder_path, grobid_config='./config.json'):
     output_path = './xml_texts'
+    os.makedirs(output_path, exist_ok=True)
     if any(os.listdir(output_path)):
         return output_path
     client = GrobidClient(config_path=grobid_config)
@@ -23,7 +25,7 @@ def convert_pdf_to_xml(folder_path, grobid_config='./config.json'):
 
 def convert_xml_to_txt(folder_path):
     xml_paths = glob.glob(f"{folder_path}/*.xml")
-    output_dir= './txt_texts'
+    output_dir = './txt_texts'
     os.makedirs(output_dir, exist_ok=True)
 
     for path in xml_paths:
@@ -31,28 +33,38 @@ def convert_xml_to_txt(folder_path):
         root = tree.getroot()
         text = []
 
-        # Extract namespace dynamically
+        # extract namespace dynamically
         ns = {'tei': root.tag.split("}")[0].strip("{")} if '}' in root.tag else {}
 
-        # Find the title using the extracted namespace
+        # getting title
         title_elem = root.find(".//tei:titleStmt/tei:title", ns)
-        text.append(f"{title_elem.text}\n")
+        if title_elem is not None and title_elem.text:
+            text.append(f"{title_elem.text}\n")
 
-        # Extract body text
+        # extract body text
         body_elem = root.find(".//tei:text/tei:body", ns)
         
         # Extract all paragraph texts within the body
         if body_elem is not None:
             for paragraph in body_elem.findall(".//tei:p", ns):  # Extract all <p> elements inside <body>
-                if paragraph.text:
-                    text.append(paragraph.text.strip())
+                paragraph_text = ''.join(paragraph.itertext()).strip()
+                if paragraph_text:
+                    text.append(paragraph_text)
 
-        document_text = ".".join(text)
+        document_text = " ".join(text)
 
+        # remove in-text citations (e.g., [1], [2], etc.)
+        document_text = re.sub(r'\[\d+\]', '', document_text)  # Remove citation numbers
+
+        # clean up extra spaces
+        document_text = re.sub(r'\s+([.,;:])', r'\1', document_text)  # Remove spaces before punctuation
+        document_text = re.sub(r'\s+', ' ', document_text)  # Replace multiple spaces with a single space
+        document_text = document_text.strip()  # Remove leading/trailing spaces
+
+        # save to .txt file
         path_split = path.split("/")
         document_number = path_split[-1].split(".", 2)[0]
         with open(f"{output_dir}/{document_number}.txt", "w", encoding='utf-8') as f:
             f.write(document_text)
 
     print(f"all .txt files saved to {output_dir}")
-    
