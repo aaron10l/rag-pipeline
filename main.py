@@ -3,7 +3,7 @@ from sentence_transformers import SentenceTransformer
 
 from data.chroma import initialize_chromadb
 from data.pubmed import fetch_pmc_full_text
-from utils.processing import process_text_files
+from utils.processing import process_text_files, convert_pdf_to_xml, convert_xml_to_txt
 from utils.embedding import store_embeddings_in_chromadb
 from utils.query import query_chromadb, format_context, format_prompt
 from utils.ollama import query_ollama
@@ -14,7 +14,7 @@ def main():
     # Sidebar initialization
     with st.sidebar:
         st.header("Pipeline Initialization")
-        gene_symbol = st.text_input("Gene Symbol", "TP53")
+        gene_symbol = st.text_input("Gene Symbol", "NKX2-1")
         folder_path = st.text_input("Folder Path", "./corpus/")
         initialize_button = st.button("Initialize Pipeline")
 
@@ -35,11 +35,17 @@ def main():
         papers_metadata = {}
 
         for query in queries:
-            papers_metadata = fetch_pmc_full_text(query, papers_metadata)
+            papers_metadata = fetch_pmc_full_text(query, papers_metadata, folder_path)
+
+        # convert papers to xml using grobid
+        xml_files_path = convert_pdf_to_xml(folder_path)
+        
+        # convert xml to txt using treeparser
+        text_files_path = convert_xml_to_txt(xml_files_path)
 
         # Store processed data in ChromaDB
         if not collection.count() > 0:
-            file_chunks = process_text_files(folder_path)
+            file_chunks = process_text_files(text_files_path)
             store_embeddings_in_chromadb(collection, file_chunks, embedding_model)
             st.success("Pipeline initialized and relevant data retrieved!")
         else:
@@ -61,10 +67,10 @@ def main():
             context = format_context(results)
             st.write(f"**Retrieved Context:**\n{context}")
 
-            prompt = format_prompt(query, context)
-            st.write("Querying Ollama...")
-            response = query_ollama(prompt)
-            st.write(f"**Ollama Response:**\n{response}")
+            # prompt = format_prompt(query, context)
+            # st.write("Querying Ollama...")
+            # response = query_ollama(prompt)
+            # st.write(f"**Ollama Response:**\n{response}")
     else:
         st.warning("Initialize the pipeline first!")
 
