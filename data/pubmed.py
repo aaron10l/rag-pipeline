@@ -5,12 +5,13 @@ import sys
 import xml.etree.ElementTree as ET
 from fake_useragent import UserAgent
 
-def fetch_pmc_full_text(query: str, papers_metadata, max_results: int = 5) -> dict:
+def fetch_pmc_full_text(query: str, papers_metadata, output_folder, max_results: int = 5) -> dict:
     """
     Saves the top 5 article results from pubmed central to the local drive corpus as pdfs.
     """
 
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+    os.makedirs(output_folder, exist_ok=True)
 
     search_params = {"db": "pmc", "term": query, "retmax": max_results, "retmode": "xml"}
     search_response = requests.get(f"{base_url}/esearch.fcgi", params=search_params)
@@ -31,7 +32,7 @@ def fetch_pmc_full_text(query: str, papers_metadata, max_results: int = 5) -> di
     # downloading each article as a pdf
     for pmc_id in pmc_ids:
         pdf_url = f"https://pmc.ncbi.nlm.nih.gov/articles/PMC{pmc_id}/pdf/"
-        destination_path = f"corpus/{pmc_id}.pdf"
+        destination_path = f"{output_folder}/{pmc_id}.pdf"
 
         if pmc_id in papers_metadata or os.path.exists(destination_path):
             print(f"Skipping article {pmc_id}, already saved.")
@@ -42,6 +43,7 @@ def fetch_pmc_full_text(query: str, papers_metadata, max_results: int = 5) -> di
         with open(destination_path, 'wb') as f:
             f.write(response.content)
 
-        papers_metadata[pmc_id] = {"path": f"corpus/{pmc_id}.pdf"}
+        papers_metadata[pmc_id] = {"path": destination_path}
+        print(f"paper {pmc_id} saved to {destination_path}")
 
     return papers_metadata
