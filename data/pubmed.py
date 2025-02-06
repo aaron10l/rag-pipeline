@@ -8,7 +8,8 @@ from fake_useragent import UserAgent
 def fetch_pmc_full_text(query: str, papers_metadata, max_results: int = 5) -> dict:
     """
     Saves the top 5 article results from pubmed central to the local drive corpus as pdfs.
-    """"
+    """
+
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
     search_params = {"db": "pmc", "term": query, "retmax": max_results, "retmode": "xml"}
