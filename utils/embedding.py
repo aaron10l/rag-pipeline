@@ -10,3 +10,4 @@ def store_embeddings_in_chromadb(collection, file_chunks, model):
                 metadatas=[{"file": file_path, "chunk": idx}],
                 ids=[f"{file_path}-{idx}"]
             )
+            print(f"Added document: {file_path}-{idx}")
