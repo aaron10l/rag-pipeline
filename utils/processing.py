@@ -3,15 +3,37 @@ import os
 import re
 from grobid_client.grobid_client import GrobidClient
 import xml.etree.ElementTree as ET
+from transformers import AutoTokenizer
 
-def process_text_files(folder_path: str, chunk_size: int = 512) -> dict:
-    pdf_paths = glob.glob(f"{folder_path}/*.pdf")
-    return {file_path: load_and_chunk_text(file_path, chunk_size) for file_path in pdf_paths}
+def process_text_files(folder_path: str, chunk_size: int = 512, stride: int = 256) -> dict:
+    txt_paths = glob.glob(f"{folder_path}/*.txt")
+    tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+    return {file_path: load_and_chunk_text(file_path, tokenizer, chunk_size, stride) for file_path in txt_paths}
 
-def load_and_chunk_text(file_path: str, chunk_size: int = 512, stride: int = 256) -> list:
+def load_and_chunk_text(file_path: str, tokenizer, chunk_size: int = 512, stride: int = 256) -> list:
+    chunks = []
+    buffer = []
+
     with open(file_path, 'r', encoding="utf-8") as file:
-        text = file.read()
-    return [text[i:i + chunk_size] for i in range(0, len(text) - chunk_size + 1, stride)]
+        for line in file:  # Read line by line to avoid loading the entire file
+            token_ids = tokenizer.encode(line.strip(), add_special_tokens=False)
+
+            buffer.extend(token_ids)
+
+            # process chunks from the buffer
+            while len(buffer) >= chunk_size:
+                chunk = buffer[:chunk_size]
+                chunk_text = tokenizer.decode(chunk, skip_special_tokens=True)
+                chunks.append(chunk_text)
+
+                # slide the window forward by `stride`
+                buffer = buffer[stride:]
+
+    if buffer:
+        chunk_text = tokenizer.decode(buffer, skip_special_tokens=True)
+        chunks.append(chunk_text)
+
+    return chunks
 
 def convert_pdf_to_xml(folder_path, grobid_config='./config.json'):
     output_path = './xml_texts'
@@ -68,3 +90,4 @@ def convert_xml_to_txt(folder_path):
             f.write(document_text)
 
     print(f"all .txt files saved to {output_dir}")
+    return output_dir
