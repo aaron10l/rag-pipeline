@@ -34,8 +34,8 @@ def main():
 
         papers_metadata = {}
 
-        for query in queries:
-            papers_metadata = fetch_pmc_full_text(query, papers_metadata, folder_path)
+        # for query in queries:
+            # papers_metadata = fetch_pmc_full_text(query, papers_metadata, folder_path)
 
         # convert papers to xml using grobid
         xml_files_path = convert_pdf_to_xml(folder_path)
@@ -67,10 +67,10 @@ def main():
             context = format_context(results)
             st.write(f"**Retrieved Context:**\n{context}")
 
-            # prompt = format_prompt(query, context)
-            # st.write("Querying Ollama...")
-            # response = query_ollama(prompt)
-            # st.write(f"**Ollama Response:**\n{response}")
+            prompt = format_prompt(query, context)
+            st.write("Querying Ollama...")
+            response = query_ollama(prompt)
+            st.write(f"**Ollama Response:**\n{response}")
     else:
         st.warning("Initialize the pipeline first!")
 
