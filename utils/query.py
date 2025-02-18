@@ -3,7 +3,15 @@ def query_chromadb(collection, query: str, model, n_results: int = 5) -> dict:
     return collection.query(query_embeddings=query_embedding, n_results=n_results)
 
 def format_context(results: dict) -> str:
-    return "".join(results["documents"][0])
+    formatted = "\n\n".join(results["documents"][0])
+    return formatted
 
 def format_prompt(query: str, context: str) -> str:
-    return f"QUERY: {query}\nCONTEXT: {context}\n"
+    prompt = f"""
+    Here is some context that may be relevant to the query:
+    {context}
+
+    Answer the following query in detail, using both the provided context and your own knowledge:
+    {query}
+    """
+    return prompt
